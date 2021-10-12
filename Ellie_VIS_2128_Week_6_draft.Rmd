@@ -1,0 +1,280 @@
+---
+title: "Ellie_Assignment_6_draft"
+output: html_document
+---
+---
+title: "Ellie_Assignment_6"
+output: html_document
+---
+
+```{r load data}
+
+install.packages("leaflet")
+install.packages("tidyverse")
+install.packages("tidycensus")
+install.packages("htmlwidgets")
+install.packages("tidytransit")
+
+```
+load library sets 
+```{r}
+library(leaflet)
+library(sf)
+library(tidyverse)
+library(tidycensus)
+library(ggthemes)
+library(ggspatial)
+library(htmlwidgets)
+library(tidytransit)
+
+```
+
+Then need to run the CENSUS API key in the Console because only needed once, Carole's is 2d74ddcbc0163acc35e29c41c37d8f24fe19d24a, mine is 2a21660e27a7519f5b19a5aa0e5cf361fe7cc7f7
+When run mine do census_api_key("YOUR API KEY GOES HERE", install=TRUE, overwrite=TRUE)
+
+Then run the variables in the console vars2010 <- load_variables(2010, "sf1")
+Think of the labels as a group within the table. If interested in a topic you can use the research function within the table. P is person level data, a lot of them are cross tabulated (sex by age by race). What you need from the table is the variable name
+
+Loading Census Data
+```{r}
+Middlesex_white <- get_decennial(geography = "block",
+                          state = "MA", county = "Middlesex",
+                          year = 2010,
+                          output = "wide",
+                          variables = c(tot_pop = 'P008001',
+                                        white_pop = 'P008003'),
+                          geometry = TRUE)
+
+```
+
+Mutate data 
+
+```{r}
+Middlesex_white <- Middlesex_white %>%
+  mutate(pct_white = white_pop / tot_pop) %>%
+  filter(tot_pop > 0)
+
+```
+
+
+Show Census data results on a map for ggplot
+
+```{r}
+MA_state_plane <- "+proj=lcc +lat_1=42.68333333333333 +lat_2=41.71666666666667 +lat_0=41 +lon_0=-71.5 +x_0=200000.0001016002 +y_0=750000 +ellps=GRS80 +datum=NAD83 +to_meter=0.3048006096012192 +no_defs"
+```
+
+```{r}
+ggplot(Middlesex_white) +
+  annotation_map_tile(zoomin = 0, progress = "none", type = "stamenbw") +
+  geom_sf(color = NA, aes(fill = pct_white), alpha = 0.7) +
+  coord_sf(crs = MA_state_plane) +
+  scale_fill_continuous(low="cornsilk", high="darkgreen", 
+                       na.value=NA,
+                       name = "Percent of population\nidentifying as White alone",
+                       breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+                       labels = c("0", "20%", "40%", "60%", "80%", "100%")) +
+  theme_void() 
+
+```
+Creating an interactive map
+This website gives a detailed tutorial on how to do that, for categorical and continuous variables. https://rstudio.github.io/leaflet/colors.html
+
+Also the addprovidertiles() is analogous to annotation_map_tile() used in ggplot
+
+```{r}
+MA_white_palette <- colorNumeric(c("cornsilk", "darkgreen"), Middlesex_white$pct_white)
+
+white_map1 <- leaflet(Middlesex_white) %>%
+  addProviderTiles("Stamen.TonerLite") %>%
+  addPolygons(stroke = FALSE, fillOpacity = 0.7,
+    color = ~MA_white_palette(pct_white)) %>%
+  addLegend("bottomright", pal = MA_white_palette, values = ~pct_white,
+    title = "Percent of population<br/>identifying as white alone",
+    labFormat = labelFormat(suffix = "%",
+                            transform = function(x) 100 * x),
+    opacity = 1)
+
+white_map1
+```
+
+
+
+Add popups and labels
+```{r}
+white_map2 <- leaflet(Middlesex_white) %>%
+  addProviderTiles("Stamen.TonerLite") %>%
+  addPolygons(color = ~MA_white_palette(pct_white), stroke = FALSE, fillOpacity = 0.7,
+              highlightOptions = highlightOptions(fillColor = "darkorange", fillOpacity = 0.9),
+              label = "This is a label",
+              popup = "This is a popup") %>%
+    addLegend("bottomright", pal = MA_white_palette, values = ~pct_white,
+    title = "Percent of population<br/>identifying as white alone",
+    labFormat = labelFormat(suffix = "%",
+                            transform = function(x) 100 * x),
+    opacity = 1)
+
+white_map2
+```
+
+When you want to populate the labels with information from the variables in your dataset run the following
+
+```{r}
+white_map3 <- leaflet(Middlesex_white) %>%
+  addProviderTiles("Stamen.TonerLite") %>%
+  addPolygons(color = ~MA_white_palette(pct_white), stroke = FALSE, fillOpacity = 0.7,
+              highlightOptions = highlightOptions(fillColor = "darkorange", fillOpacity = 0.9),
+              label = Middlesex_white$NAME,
+              popup = paste("Total population: ", Middlesex_white$tot_pop, "<br/>",
+                            "white population: ", Middlesex_white$white_pop, " (", 
+                            round(Middlesex_white$pct_white * 100, 1), "%)", sep = "")) %>%
+    addLegend("bottomright", pal = MA_white_palette, values = ~pct_white,
+    title = "Percent of population<br/>identifying as white alone",
+    labFormat = labelFormat(suffix = "%",
+                            transform = function(x) 100 * x),
+    opacity = 1)
+```
+
+Then save the map as a stand-alone html file
+```{r}
+
+saveWidget(white_map3, file="inter_white.html")
+
+```
+
+
+Loading American Community Survey (ACS) data
+one key difference is the ACS is a sample of the population, rather than the entire population for the census, so you have tot_wrkrsE is the estimated of number of workers, while tot_wrkrsM is the margin of error 90% confidence associated with that estimate
+
+```{r}
+transit_Suffolk <- get_acs(geography = "tract", county = "Suffolk", state = "MA", 
+                           year = 2019, survey = "acs5",
+                           variables = c(tot_wrkrs = "B08301_001", pt_wrkrs = "B08301_010"),
+                           output = "wide", geometry = TRUE) 
+```
+
+
+Use the mutate function to calculate the share of workers that commutes by transit 
+```{r}
+
+transit_Suffolk <- transit_Suffolk %>%
+  select(-tot_wrkrsM, -pt_wrkrsM) %>%
+  filter(tot_wrkrsE > 0) %>%
+  mutate(pct_transit = round(100 * pt_wrkrsE / tot_wrkrsE, 1))
+
+```
+
+Now plot that as an interactive map
+
+```{r}
+transit_palette <- colorNumeric(c("pink", "lightblue"),
+                                transit_Suffolk$pct_transit)
+
+transit_map <- leaflet(transit_Suffolk) %>%
+  addProviderTiles("Stamen.TonerLite") %>%
+  addPolygons(fillColor = ~transit_palette(pct_transit), weight = 1, color = "gray", fillOpacity = 0.7,
+              highlightOptions = highlightOptions(fillColor = "yellow", fillOpacity = 0.9),
+              label = transit_Suffolk$NAME,
+              popup = paste("Total workers: ", transit_Suffolk$tot_wrkrsE, "<br/>",
+                            "Transit commuters: ", transit_Suffolk$pt_wrkrsE, " (", 
+                            transit_Suffolk$pct_transit, "%)", sep = "")) %>%
+    addLegend("bottomright", pal = transit_palette, values = ~pct_transit,
+    title = "Percent of workers<br/>communting by transit",
+    labFormat = labelFormat(suffix = "%"),
+    opacity = 1)
+
+transit_map
+
+```
+
+
+Adding point data (markers and circles) 
+
+Loading stop locations from GTFS
+```{r}
+MBTA_url <- feedlist[feedlist$t == "MBTA GTFS",]$url_d
+
+MBTA <- read_gtfs(MBTA_url)
+
+transit_stops <- MBTA$stops
+
+transit_stations <- transit_stops %>%
+  filter(location_type == 1)
+```
+
+
+
+Converting point data to and from a csv file, you are converting transit stations to a sf points
+```{r}
+
+station_sf <- st_as_sf(transit_stations, 
+                          coords = c("stop_lon", "stop_lat"), 
+                          crs = "WGS84")
+```
+
+Then convert back to a csv file and read it in as a data frame
+
+```{r}
+st_write(station_sf, "MBTA_stations.csv", layer_options = "GEOMETRY=AS_XY", append = FALSE)
+
+stations_2 <- read_csv("MBTA_stations.csv")
+
+```
+
+Displaying markers, you can display point data as a marker
+
+```{r}
+
+transit_map2 <- transit_map %>%
+  addMarkers(lng = transit_stations$stop_lon,
+             lat = transit_stations$stop_lat,
+             popup = transit_stations$stop_name)
+
+transit_map2
+
+```
+
+
+
+
+Setting map extents, since MBTA system is more than suffolk county, you can set extents of map to avoid having to zoom in, you can also set limits as to what the user can do
+```{r}
+limits <- st_bbox(transit_Suffolk)
+
+transit_map3 <- transit_map2 %>%
+   fitBounds( lng1 = as.numeric(limits[1]),
+                lat1 = as.numeric(limits[2]),
+                lng2 = as.numeric(limits[3]),
+                lat2 = as.numeric(limits[4])) %>%
+   setMaxBounds( lng1 = as.numeric(limits[1]),
+                lat1 = as.numeric(limits[2]),
+                lng2 = as.numeric(limits[3]),
+                lat2 = as.numeric(limits[4])) 
+
+transit_map3
+
+```
+
+
+
+Displaying points as circle markers - default marker style clutters the map, so you can use circle markers
+```{r}
+
+transit_map4 <- transit_map %>%
+  addCircleMarkers(stroke = FALSE, color = "black", fillOpacity = 1, radius = 3,
+                   lng = transit_stations$stop_lon,
+                   lat = transit_stations$stop_lat,
+                   popup = transit_stations$stop_name) %>%
+   fitBounds( lng1 = as.numeric(limits[1]),
+                lat1 = as.numeric(limits[2]),
+                lng2 = as.numeric(limits[3]),
+                lat2 = as.numeric(limits[4])) %>%
+   setMaxBounds( lng1 = as.numeric(limits[1]),
+                lat1 = as.numeric(limits[2]),
+                lng2 = as.numeric(limits[3]),
+                lat2 = as.numeric(limits[4])) 
+
+transit_map4
+
+```
+
+
