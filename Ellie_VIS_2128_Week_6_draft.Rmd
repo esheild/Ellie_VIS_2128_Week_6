@@ -2,20 +2,7 @@
 title: "Ellie_Assignment_6_draft"
 output: html_document
 ---
----
-title: "Ellie_Assignment_6"
-output: html_document
----
 
-```{r load data}
-
-install.packages("leaflet")
-install.packages("tidyverse")
-install.packages("tidycensus")
-install.packages("htmlwidgets")
-install.packages("tidytransit")
-
-```
 load library sets 
 ```{r}
 library(leaflet)
@@ -76,15 +63,16 @@ ggplot(Middlesex_white) +
   theme_void() 
 
 ```
+
 Creating an interactive map
 This website gives a detailed tutorial on how to do that, for categorical and continuous variables. https://rstudio.github.io/leaflet/colors.html
 
 Also the addprovidertiles() is analogous to annotation_map_tile() used in ggplot
 
 ```{r}
-MA_white_palette <- colorNumeric(c("cornsilk", "darkgreen"), Middlesex_white$pct_white)
+MA_white_palette <- colorNumeric(c("cornsilk", "darkred"), Middlesex_white$pct_white)
 
-white_map1 <- leaflet(Middlesex_white) %>%
+white_map1 <- leaflet(st_transform(Middlesex_white, crs = "WGS84")) %>%
   addProviderTiles("Stamen.TonerLite") %>%
   addPolygons(stroke = FALSE, fillOpacity = 0.7,
     color = ~MA_white_palette(pct_white)) %>%
@@ -101,7 +89,7 @@ white_map1
 
 Add popups and labels
 ```{r}
-white_map2 <- leaflet(Middlesex_white) %>%
+white_map2 <- leaflet(st_transform(Middlesex_white, crs = "WGS84")) %>%
   addProviderTiles("Stamen.TonerLite") %>%
   addPolygons(color = ~MA_white_palette(pct_white), stroke = FALSE, fillOpacity = 0.7,
               highlightOptions = highlightOptions(fillColor = "darkorange", fillOpacity = 0.9),
@@ -119,25 +107,27 @@ white_map2
 When you want to populate the labels with information from the variables in your dataset run the following
 
 ```{r}
-white_map3 <- leaflet(Middlesex_white) %>%
-  addProviderTiles("Stamen.TonerLite") %>%
+white_map3 <- leaflet(st_transform(Middlesex_white, crs = "WGS84")) %>%
+  addProviderTiles("OpenStreetMap.HOT") %>%
   addPolygons(color = ~MA_white_palette(pct_white), stroke = FALSE, fillOpacity = 0.7,
-              highlightOptions = highlightOptions(fillColor = "darkorange", fillOpacity = 0.9),
+              highlightOptions = highlightOptions(fillColor = "lightblue", fillOpacity = 0.9),
               label = Middlesex_white$NAME,
               popup = paste("Total population: ", Middlesex_white$tot_pop, "<br/>",
                             "white population: ", Middlesex_white$white_pop, " (", 
                             round(Middlesex_white$pct_white * 100, 1), "%)", sep = "")) %>%
     addLegend("bottomright", pal = MA_white_palette, values = ~pct_white,
-    title = "Percent of population<br/>identifying as white alone",
+    title = "Percent of Middlesex County, MA population<br/>identifying as white alone",
     labFormat = labelFormat(suffix = "%",
                             transform = function(x) 100 * x),
     opacity = 1)
+
+white_map3
 ```
 
 Then save the map as a stand-alone html file
 ```{r}
 
-saveWidget(white_map3, file="inter_white.html")
+saveWidget(white_map3, file="Middlesex_white.html")
 
 ```
 
@@ -146,7 +136,7 @@ Loading American Community Survey (ACS) data
 one key difference is the ACS is a sample of the population, rather than the entire population for the census, so you have tot_wrkrsE is the estimated of number of workers, while tot_wrkrsM is the margin of error 90% confidence associated with that estimate
 
 ```{r}
-transit_Suffolk <- get_acs(geography = "tract", county = "Suffolk", state = "MA", 
+transit_middlesex <- get_acs(geography = "tract", county = "Middlesex", state = "MA", 
                            year = 2019, survey = "acs5",
                            variables = c(tot_wrkrs = "B08301_001", pt_wrkrs = "B08301_010"),
                            output = "wide", geometry = TRUE) 
@@ -156,7 +146,7 @@ transit_Suffolk <- get_acs(geography = "tract", county = "Suffolk", state = "MA"
 Use the mutate function to calculate the share of workers that commutes by transit 
 ```{r}
 
-transit_Suffolk <- transit_Suffolk %>%
+transit_middlesex <- transit_middlesex %>%
   select(-tot_wrkrsM, -pt_wrkrsM) %>%
   filter(tot_wrkrsE > 0) %>%
   mutate(pct_transit = round(100 * pt_wrkrsE / tot_wrkrsE, 1))
@@ -167,16 +157,16 @@ Now plot that as an interactive map
 
 ```{r}
 transit_palette <- colorNumeric(c("pink", "lightblue"),
-                                transit_Suffolk$pct_transit)
+                                transit_middlesex$pct_transit)
 
-transit_map <- leaflet(transit_Suffolk) %>%
+transit_map <- leaflet(transit_middlesex) %>%
   addProviderTiles("Stamen.TonerLite") %>%
   addPolygons(fillColor = ~transit_palette(pct_transit), weight = 1, color = "gray", fillOpacity = 0.7,
               highlightOptions = highlightOptions(fillColor = "yellow", fillOpacity = 0.9),
-              label = transit_Suffolk$NAME,
-              popup = paste("Total workers: ", transit_Suffolk$tot_wrkrsE, "<br/>",
-                            "Transit commuters: ", transit_Suffolk$pt_wrkrsE, " (", 
-                            transit_Suffolk$pct_transit, "%)", sep = "")) %>%
+              label = transit_middlesex$NAME,
+              popup = paste("Total workers: ", transit_middlesex$tot_wrkrsE, "<br/>",
+                            "Transit commuters: ", transit_middlesex$pt_wrkrsE, " (", 
+                            transit_middlesex$pct_transit, "%)", sep = "")) %>%
     addLegend("bottomright", pal = transit_palette, values = ~pct_transit,
     title = "Percent of workers<br/>communting by transit",
     labFormat = labelFormat(suffix = "%"),
@@ -238,7 +228,7 @@ transit_map2
 
 Setting map extents, since MBTA system is more than suffolk county, you can set extents of map to avoid having to zoom in, you can also set limits as to what the user can do
 ```{r}
-limits <- st_bbox(transit_Suffolk)
+limits <- st_bbox(transit_middlesex)
 
 transit_map3 <- transit_map2 %>%
    fitBounds( lng1 = as.numeric(limits[1]),
